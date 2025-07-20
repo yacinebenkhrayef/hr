@@ -1,0 +1,50 @@
+// 1. WORKED_WITH: Employees with same JobRole and Department
+MATCH (e1:Employee)-[:HAS_JOB_ROLE]->(jr:JobRole)<-[:HAS_JOB_ROLE]-(e2:Employee)
+WITH e1, e2, jr
+MATCH (e1)-[:WORKS_IN]->(d:Department)<-[:WORKS_IN]-(e2)
+WHERE elementId(e1) < elementId(e2) // Ensures each pair is processed once and avoids self-loops
+MERGE (e1)-[:WORKED_WITH]->(e2);
+---
+
+// 2. MENTORED_BY: Employees with more years with manager in the same JobRole and Department
+MATCH (e1:Employee)
+MATCH (e2:Employee)
+// Optimizing: Use a WHERE clause immediately to reduce the potential pairs
+WHERE elementId(e1) <> elementId(e2)
+  AND e2.yearsWithCurrManager > e1.yearsWithCurrManager
+
+// Now, proceed with matching shared JobRole and Department using the filtered e1 and e2
+MATCH (e1)-[:HAS_ROLE]->(jr:JobRole)<-[:HAS_ROLE]-(e2)
+MATCH (e1)-[:WORKS_IN]->(d:Department)<-[:WORKS_IN]-(e2)
+
+WITH e1, e2
+ORDER BY e2.yearsWithCurrManager DESC
+WITH e1, collect(e2)[0] AS mentor
+MERGE (e1)-[:MENTORED_BY]->(mentor);
+---
+
+// 3. BELONGS_TO_TENURE_GROUP
+// First, create TenureGroup nodes.
+UNWIND [
+  {name: 'Newbie', min: 0, max: 1},
+  {name: 'Junior', min: 2, max: 4},
+  {name: 'Mid-Level', min: 5, max: 7},
+  {name: 'Senior', min: 8, max: 12},
+  {name: 'Veteran', min: 13, max: 50}
+] AS group
+MERGE (tg:TenureGroup {name: group.name})
+  ON CREATE SET tg.min = group.min, tg.max = group.max;
+
+// Ensure an index exists for efficient lookup of TenureGroup nodes
+CREATE INDEX IF NOT EXISTS FOR (tg:TenureGroup) ON (tg.name);
+
+
+// Then, link employees to their corresponding TenureGroup.
+MATCH (e:Employee), (tg:TenureGroup)
+WHERE e.yearsAtCompany >= tg.min AND e.yearsAtCompany <= tg.max
+MERGE (e)-[:BELONGS_TO_TENURE_GROUP]->(tg);
+
+
+
+
+
